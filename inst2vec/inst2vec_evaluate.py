@@ -264,9 +264,9 @@ def evaluate_analogies(W, reverse_dictionary, analogies, analogy_types, results_
     # Build the computational graph
     # Placeholders to fill in with indices of words in an analogy question
     # (dim = [N], N = number of analogies to evaluate in one batch) (or rather: unknown at this point)
-    analogy_a = tf.placeholder(dtype=tf.int32)
-    analogy_b = tf.placeholder(dtype=tf.int32)
-    analogy_c = tf.placeholder(dtype=tf.int32)
+    analogy_a = tf.compat.v1.placeholder(dtype=tf.int32)
+    analogy_b = tf.compat.v1.placeholder(dtype=tf.int32)
+    analogy_c = tf.compat.v1.placeholder(dtype=tf.int32)
 
     # Embeddings (dim = [vocabulary size, embedding dimension])
     embedding_matrix = tf.nn.l2_normalize(W, axis=1)
@@ -277,9 +277,9 @@ def evaluate_analogies(W, reverse_dictionary, analogies, analogy_types, results_
         ") does not match vocabulary size of dictionary (" + str(vocabulary_size_dic) + ")"
 
     # Embedding vectors corresponding to the input words (dim = [N, embedding dimension])
-    embedded_a = tf.nn.embedding_lookup(embedding_matrix, analogy_a)
-    embedded_b = tf.nn.embedding_lookup(embedding_matrix, analogy_b)
-    embedded_c = tf.nn.embedding_lookup(embedding_matrix, analogy_c)
+    embedded_a = tf.nn.embedding_lookup(params=embedding_matrix, ids=analogy_a)
+    embedded_b = tf.nn.embedding_lookup(params=embedding_matrix, ids=analogy_b)
+    embedded_c = tf.nn.embedding_lookup(params=embedding_matrix, ids=analogy_c)
 
     # Predicted embedding vectors (i.e. computed answer to the analogy question)
     # (dim = [N, embedding dimension])
@@ -367,7 +367,7 @@ def evaluate_analogies(W, reverse_dictionary, analogies, analogy_types, results_
             incorrect_answers_a.append(incorrect_answers_a_)
 
     if session is None:
-        with tf.Session() as sess:
+        with tf.compat.v1.Session() as sess:
             inner_evaluate_analogies(sess)
     else:
         inner_evaluate_analogies(session)

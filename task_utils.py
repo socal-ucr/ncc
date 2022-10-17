@@ -35,7 +35,7 @@ from absl import flags
 # Embedding and vocabulary file paths
 flags.DEFINE_string('embeddings_file', 'published_results/emb.p',
                     'Path to the embeddings file')
-flags.DEFINE_string('vocabulary_dir', 'published_results/vocabulary',
+flags.DEFINE_string('vocabulary_dir', 'data/vocabulary',
                     'Path to the vocabulary folder associated with those embeddings')
 
 FLAGS = flags.FLAGS
@@ -318,6 +318,7 @@ def llvm_ir_to_trainable(folder_ir):
             # Vocabulary files
             folder_vocabulary = FLAGS.vocabulary_dir
             dictionary_pickle = os.path.join(folder_vocabulary, 'dic_pickle')
+            #dictionary_pickle = 'data/vocabulary/dic_pickle'
             cutoff_stmts_pickle = os.path.join(folder_vocabulary, 'cutoff_stmts_pickle')
 
             # Load dictionary and cutoff statements

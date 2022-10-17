@@ -21,7 +21,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # ==============================================================================
 """Training workflow for app classification"""
-from labm8 import fs
+#from labm8 import fs
 import task_utils
 import rgx_utils as rgx
 import pickle
@@ -29,6 +29,22 @@ from sklearn.utils import resample
 import os
 import numpy as np
 import tensorflow as tf
+#tf.compat.v1.disable_eager_execution()
+#tf.compat.v1.experimental.output_all_intermediates(True)
+#tf.config.experimental.set_memory_growth(gpu, True)
+
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+  try:
+    # Currently, memory growth needs to be the same across GPUs
+    for gpu in gpus:
+      tf.config.experimental.set_memory_growth(gpu, True)
+    logical_gpus = tf.config.list_logical_devices('GPU')
+    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+  except RuntimeError as e:
+    # Memory growth must be set before GPUs have been initialized
+    print(e)
+
 import math
 import struct
 from keras import utils
@@ -40,7 +56,7 @@ from absl import flags
 flags.DEFINE_string('input_data', 'task/classifyapp', 'Path to input data')
 flags.DEFINE_string('out', 'task/classifyapp', 'Path to folder in which to write saved Keras models and predictions')
 flags.DEFINE_integer('num_epochs', 50, 'number of training epochs')
-flags.DEFINE_integer('batch_size', 64, 'training batch size')
+flags.DEFINE_integer('batch_size', 32, 'training batch size')
 flags.DEFINE_integer('dense_layer', 32, 'dense layer size')
 flags.DEFINE_integer('train_samples', 1500, 'Number of training samples per class')
 flags.DEFINE_integer('vsamples', 0, 'Sampling on validation set')
@@ -108,7 +124,7 @@ def encode_srcs(input_files, dataset_name, unk_index):
 
 
 def pad_src(seqs, maxlen, unk_index):
-    from keras.preprocessing.sequence import pad_sequences
+    from keras_preprocessing.sequence import pad_sequences
 
     encoded = np.array(pad_sequences(seqs, maxlen=maxlen, value=unk_index))
     return np.vstack([np.expand_dims(x, axis=0) for x in encoded])
@@ -123,9 +139,10 @@ class EmbeddingSequence(utils.Sequence):
         self.y_1hot = y_1hot
         self.emb = embedding_mat
         # Make tf block less gpu memory
-        config = tf.ConfigProto()
+        gpu_options = tf.compat.v1.GPUOptions(allow_growth=True)
+        config = tf.compat.v1.ConfigProto(gpu_options=gpu_options)
         config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=config)
+        self.sess = tf.compat.v1.Session(config=config)
         self._set_index_array()
 
     def _set_index_array(self):
@@ -145,7 +162,8 @@ class EmbeddingSequence(utils.Sequence):
         idx_begin, idx_end = self.batch_size * idx, self.batch_size * (idx + 1)
 
         x = self.x_seq[idx_begin:idx_end]
-        emb_x = tf.nn.embedding_lookup(self.emb, x).eval(session=self.sess)
+        #emb_x = tf.nn.embedding_lookup(params=self.emb, ids=x).eval(session=self.sess)
+        emb_x = tf.nn.embedding_lookup(params=self.emb, ids=x)
         return emb_x, self.y_1hot[idx_begin:idx_end]
 
 
@@ -156,9 +174,9 @@ class EmbeddingPredictionSequence(utils.Sequence):
         self.dataset_len = int(np.shape(x_seq)[0] // self.batch_size)
         self.emb = embedding_mat
         # Make tf block less gpu memory
-        config = tf.ConfigProto()
+        config = tf.compat.v1.ConfigProto()
         config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=config)
+        self.sess = tf.compat.v1.Session(config=config)
 
     def __len__(self):
         return self.dataset_len
@@ -166,7 +184,8 @@ class EmbeddingPredictionSequence(utils.Sequence):
     def __getitem__(self, idx):
         idx_begin, idx_end = self.batch_size * idx, self.batch_size * (idx + 1)
         x = self.x_seq[idx_begin:idx_end]
-        emb_x = tf.nn.embedding_lookup(self.emb, x).eval(session=self.sess)
+        #emb_x = tf.nn.embedding_lookup(params=self.emb, ids=x).eval(session=self.sess)
+        emb_x = tf.nn.embedding_lookup(params=self.emb, ids=x)
         return emb_x
 
 
@@ -194,8 +213,9 @@ class NCC_classifyapp(object):
     __basename__ = "ncc_classifyapp"
 
     def init(self, seed: int, maxlen: int, embedding_dim: int, num_classes: int, dense_layer_size: int):
+        #import tensorflow as tf
         from keras.layers import Input, LSTM, Dense
-        from keras.layers.normalization import BatchNormalization
+        from keras.layers import BatchNormalization
         from keras.models import Model
 
         np.random.seed(seed)
@@ -224,17 +244,21 @@ class NCC_classifyapp(object):
         from keras.models import load_model
         self.model = load_model(inpath)
 
+    def restore_weights(self, inpath: str):
+        #from keras.models import load_weights  
+        self.model.load_weights(inpath)
+
     def train(self, sequences: np.array, y_1hot: np.array, sequences_val: np.array, y_1hot_val: np.array,
               verbose: bool, epochs: int, batch_size: int) -> None:
         self.model.fit(x=sequences, y=y_1hot, epochs=epochs, batch_size=batch_size, verbose=verbose, shuffle=True,
-                       validation_data=(sequences_val, y_1hot_val))
+                       validation_data=(sequences_val, y_1hot_val), )
 
     def train_gen(self, train_generator: EmbeddingSequence, validation_generator: EmbeddingSequence,
                   verbose: bool, epochs: int) -> None:
         checkpoint = WeightsSaver(self.model, FLAGS.save_every, FLAGS.ring_size)
 
         try:
-            self.model.fit_generator(train_generator, epochs=epochs, verbose=verbose,
+            self.model.fit(train_generator, epochs=epochs, verbose=verbose,
                                      validation_data=validation_generator,
                                      shuffle=True, callbacks=[checkpoint])
         except KeyboardInterrupt:
@@ -358,9 +382,9 @@ def evaluate(model, embeddings, folder_data, samples_per_class, folder_results, 
                               "models/{}.model".format(model_name))
     predictions_path = os.path.join(folder_results,
                                     "predictions/{}.result".format(model_name))
-
+    weight_path = os.path.join(folder_results, "weights4.h5")
     # If predictions have already been made with these embeddings, load them
-    if fs.exists(predictions_path):
+    if os.path.exists(predictions_path):
         print("\tFound predictions in", predictions_path, ", skipping...")
         with open(predictions_path, 'rb') as infile:
             p = pickle.load(infile)
@@ -377,10 +401,21 @@ def evaluate(model, embeddings, folder_data, samples_per_class, folder_results, 
         gen_test = EmbeddingPredictionSequence(batch_size, X_seq_test, embedding_matrix_normalized)
 
         # If models have already been made with these embeddings, load them
-        if fs.exists(model_path):
+        if os.path.exists(model_path):
             print("\n\tFound trained model in", model_path, ", skipping...")
             model.restore(model_path)
 
+        elif os.path.exists(weight_path): 
+            print("\n\tFound trained weights in", weight_path, ", skipping...")
+            print('\n--- Initializing model...')
+            model.init(seed=seed,
+                       maxlen=maxlen,
+                       embedding_dim=int(embedding_dimension),
+                       num_classes=num_classes,
+                       dense_layer_size=dense_layer_size)
+            if print_summary:
+                model.model.summary()
+            model.restore_weights(weight_path)
         else:  # could not find models already computed with these embeddings
 
             gen_train = EmbeddingSequence(batch_size, X_seq_train, y_1hot_train, embedding_matrix_normalized)
@@ -390,12 +425,14 @@ def evaluate(model, embeddings, folder_data, samples_per_class, folder_results, 
             # Train
 
             # Create a new model and train it
+            mirrored_strategy = tf.distribute.MirroredStrategy()
             print('\n--- Initializing model...')
-            model.init(seed=seed,
-                       maxlen=maxlen,
-                       embedding_dim=int(embedding_dimension),
-                       num_classes=num_classes,
-                       dense_layer_size=dense_layer_size)
+            with mirrored_strategy.scope():
+                model.init(seed=seed,
+                           maxlen=maxlen,
+                           embedding_dim=int(embedding_dimension),
+                           num_classes=num_classes,
+                           dense_layer_size=dense_layer_size)
             if print_summary:
                 model.model.summary()
             print('\n--- Training model...')
@@ -405,7 +442,8 @@ def evaluate(model, embeddings, folder_data, samples_per_class, folder_results, 
                             epochs=num_epochs)
 
             # Save the model
-            fs.mkdir(fs.dirname(model_path))
+            if not os.path.exists(os.path.dirname(model_path)):
+                os.mkdir(os.path.dirname(model_path))
             model.save(model_path)
             print('\tsaved model to', model_path)
 
@@ -417,7 +455,8 @@ def evaluate(model, embeddings, folder_data, samples_per_class, folder_results, 
         p = model.predict_gen(generator=gen_test)[0]
 
         # cache the prediction
-        fs.mkdir(fs.dirname(predictions_path))
+        if not os.path.exists(os.path.dirname(predictions_path)):  
+            os.mkdir(os.path.dirname(predictions_path))
         with open(predictions_path, 'wb') as outfile:
             pickle.dump(p, outfile)
         print('\tsaved predictions to', predictions_path)
@@ -473,7 +512,7 @@ def main(argv):
     # Evaluate Classifyapp
     print("\nEvaluating ClassifyappInst2Vec ...")
     classifyapp_accuracy = evaluate(NCC_classifyapp(), embeddings, folder_data, train_samples, folder_results,
-                                    dense_layer_size, print_summary, num_epochs, batch_size)
+                                    dense_layer_size, print_summary, num_epochs, 8*batch_size)
 
     ####################################################################################################################
     # Print results

@@ -231,16 +231,16 @@ def evaluate(model, device, data_folder, out_folder, embeddings,
         import tensorflow as tf  # for embeddings lookup
         embedding_matrix_normalized = tf.nn.l2_normalize(embeddings, axis=1)
         vocabulary_size, embedding_dimension = embedding_matrix_normalized.shape
-        seq_ = tf.placeholder(dtype=tf.int32)
+        seq_ = tf.compat.v1.placeholder(dtype=tf.int32)
         # Tensor of shape (num_input_files, sequence length, embbedding dimension)
-        embedding_input_ = tf.nn.embedding_lookup(embedding_matrix_normalized,
-                                                  seq_)
+        embedding_input_ = tf.nn.embedding_lookup(params=embedding_matrix_normalized,
+                                                  ids=seq_)
 
         # Make tf block less gpu memory
-        config = tf.ConfigProto()
+        config = tf.compat.v1.ConfigProto()
         config.gpu_options.allow_growth = True
 
-        with tf.Session(config=config) as sess:
+        with tf.compat.v1.Session(config=config) as sess:
             embedding_input = sess.run(embedding_input_, feed_dict={seq_: sequences})
 
         # Values used for training & predictions
